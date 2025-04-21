@@ -11,7 +11,11 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  # Single build and deploy job
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,33 +24,12 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v3
         
-      # Explicit dependency installation
-      - name: Setup required dependency
-        uses: actions/upload-artifact@v3
-        with:
-          name: dummy-artifact
-          path: ./
-          retention-days: 1
-          if-no-files-found: ignore
-          
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
-        with:
-          source: ./
-          destination: ./_site
-          
-      - name: Upload artifact
+      # Skip Jekyll processing entirely for simple HTML/CSS/JS sites
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v1
         with:
-          path: ./_site
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
+          path: ./
+          
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v2
