@@ -1,0 +1,78 @@
+name: Code Quality & Testing
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Esegui il workflow ogni domenica alle 00:00 UTC
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  validate-html:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install html-validator
+        run: npm install -g html-validator-cli
+        
+      - name: Validate HTML
+        run: html-validator --file index.html --verbose
+        
+      - name: Create badge for HTML validation
+        uses: schneegans/dynamic-badges-action@v1.6.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: gist_id_placeholder
+          filename: html-validation.json
+          label: HTML
+          message: Validato
+          color: green
+          
+  lighthouse-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Audit URLs using Lighthouse
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+          
+      - name: Format lighthouse score
+        id: format_lighthouse_score
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const result = ${{ steps.lighthouse.outputs.manifest }}[0].summary
+            return Math.round((result.performance + result.accessibility + result.best-practices + result.seo) / 4)
+            
+      - name: Create Lighthouse badge
+        uses: schneegans/dynamic-badges-action@v1.6.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: gist_id_placeholder
+          filename: lighthouse-score.json
+          label: lighthouse
+          message: ${{ steps.format_lighthouse_score.outputs.result }}
+          color: orange
+          
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v3

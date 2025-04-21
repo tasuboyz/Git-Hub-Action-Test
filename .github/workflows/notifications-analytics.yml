@@ -1,0 +1,132 @@
+name: Notifiche & Analisi Dati
+
+on:
+  schedule:
+    - cron: '0 10 1 * *'  # Primo giorno del mese alle 10:00 UTC
+  workflow_dispatch:  # Consenti l'esecuzione manuale
+  release:
+    types: [published]
+
+jobs:
+  traffic-analytics:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: analytics
+          
+      - name: Create analytics branch if not exists
+        run: |
+          git fetch
+          if ! git rev-parse --verify analytics; then
+            git checkout -b analytics
+            git push -u origin analytics
+          else
+            git checkout analytics
+          fi
+        continue-on-error: true
+          
+      - name: Collect GitHub traffic stats
+        uses: sangonzal/repository-traffic-action@v0.1.4
+        env:
+          TRAFFIC_ACTION_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Store traffic data
+        run: |
+          mkdir -p analytics
+          DATE=$(date +"%Y-%m")
+          
+          # Create Analytics CSV if it doesn't exist
+          if [ ! -f analytics/traffic-$DATE.csv ]; then
+            echo "Date,Views,Unique Visitors,Clones,Unique Cloners" > analytics/traffic-$DATE.csv
+          fi
+          
+          # Add today's data
+          echo "$(date +"%Y-%m-%d"),${TRAFFIC_VIEWS},${TRAFFIC_VISITORS},${TRAFFIC_CLONES},${TRAFFIC_CLONERS}" >> analytics/traffic-$DATE.csv
+          
+          # Commit the changes
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add analytics/
+          git commit -m "[Automated] Aggiunto report traffico per $(date +"%Y-%m-%d")"
+          git push
+        env:
+          TRAFFIC_VIEWS: ${{ steps.traffic.outputs.views }}
+          TRAFFIC_VISITORS: ${{ steps.traffic.outputs.visitors }}
+          TRAFFIC_CLONES: ${{ steps.traffic.outputs.clones }}
+          TRAFFIC_CLONERS: ${{ steps.traffic.outputs.cloners }}
+          
+  monthly-report:
+    needs: traffic-analytics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: analytics
+          
+      - name: Generate monthly performance report
+        uses: actions/github-script@v6
+        id: get-stats
+        with:
+          script: |
+            const stats = await github.rest.repos.getPageViews({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            
+            const monthlyViews = stats.data.views.reduce((sum, day) => sum + day.count, 0);
+            const monthlyUniques = stats.data.views.reduce((sum, day) => sum + day.uniques, 0);
+            
+            return { monthlyViews, monthlyUniques };
+            
+      - name: Send report via email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: Report Mensile del Sito - ${{ github.repository }}
+          body: |
+            # Report Mensile del Sito
+            
+            ## Statistiche del Mese
+            - Visualizzazioni Totali: ${{ fromJSON(steps.get-stats.outputs.result).monthlyViews }}
+            - Visitatori Unici: ${{ fromJSON(steps.get-stats.outputs.result).monthlyUniques }}
+            
+            Il report completo è disponibile nel branch 'analytics' del repository.
+          to: ${{ secrets.EMAIL_RECIPIENTS }}
+          from: GitHub Actions
+          
+  social-media-notification:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Send Twitter notification
+        uses: ethomson/send-tweet-action@v1
+        if: ${{ secrets.TWITTER_CONSUMER_API_KEY != '' }}
+        with:
+          status: "🚀 Nuova versione ${{ github.event.release.tag_name }} rilasciata! Scopri le novità: ${{ github.event.release.html_url }} #webdev #github"
+          consumer-key: ${{ secrets.TWITTER_CONSUMER_API_KEY }}
+          consumer-secret: ${{ secrets.TWITTER_CONSUMER_API_SECRET }}
+          access-token: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          access-token-secret: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
+          
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@v0.1.1
+        if: ${{ secrets.TELEGRAM_TOKEN != '' }}
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            🚀 *Nuova Release* 🚀
+            
+            Versione: ${{ github.event.release.tag_name }}
+            
+            Descrizione:
+            ${{ github.event.release.body }}
+            
+            [Scarica ora](${{ github.event.release.html_url }})

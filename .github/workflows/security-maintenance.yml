@@ -1,0 +1,90 @@
+name: Security & Maintenance
+
+on:
+  schedule:
+    - cron: '0 2 * * 3'  # Esegui ogni mercoledì alle 02:00 UTC
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Consenti l'esecuzione manuale
+
+jobs:
+  codeql-analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript
+          
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for package.json
+        id: check_files
+        run: |
+          if [ -f package.json ]; then
+            echo "has_package=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_package=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Scan dependencies for vulnerabilities
+        if: steps.check_files.outputs.has_package == 'true'
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+          
+  stale-pr-cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      
+    steps:
+      - uses: actions/stale@v8
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-pr-message: "Questa PR è stata marcata come stale perché non ha avuto attività negli ultimi 30 giorni."
+          close-pr-message: "Questa PR è stata chiusa automaticamente perché non ha avuto attività negli ultimi 37 giorni."
+          stale-pr-label: "stale"
+          exempt-pr-labels: "work-in-progress,waiting-for-review"
+          days-before-pr-stale: 30
+          days-before-pr-close: 7
+          
+  sitemap-generator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate sitemap
+        uses: lowlighter/metrics@latest
+        with:
+          filename: sitemap.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: ""
+          plugin_sitemap: yes
+          plugin_sitemap_branch: ${{ github.ref_name }}
+          
+      - name: Commit sitemap if changed
+        run: |
+          if [ -f sitemap.xml ] && [ -n "$(git status --porcelain sitemap.xml)" ]; then
+            git config --global user.name 'GitHub Actions'
+            git config --global user.email 'actions@github.com'
+            git add sitemap.xml
+            git commit -m "[Automated] Aggiornamento del sitemap"
+            git push
+          fi
