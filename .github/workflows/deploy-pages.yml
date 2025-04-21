@@ -1,35 +1,44 @@
 name: Deploy to GitHub Pages
 
+# Controlli quando il workflow viene eseguito
 on:
+  # Si attiva quando viene fatto push sui branch specificati
   push:
-    branches:
-      - main  # Set this to your default branch
+    branches: ["main"]
+  
+  # Permette di eseguire questo workflow manualmente dalla scheda Actions
+  workflow_dispatch:
 
+# Imposta le autorizzazioni del GITHUB_TOKEN per permettere il deployment su GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Consente una sola distribuzione parallela
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  # Single build and deploy job
+  # Job di deployment singolo dato che non è necessaria una fase di build
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        
+      - name: Checkout
+        uses: actions/checkout@v4
+      
       - name: Setup Pages
-        uses: actions/configure-pages@v3
-        
-      # Skip Jekyll processing entirely for simple HTML/CSS/JS sites
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/configure-pages@v4
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: ./
-          
+          path: '.'
+      
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
